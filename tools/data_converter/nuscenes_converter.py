@@ -16,6 +16,15 @@ from typing import List, Tuple, Union
 
 from mmdet3d.core.bbox.box_np_ops import points_cam2img
 from mmdet3d.datasets import NuScenesDataset
+import logging,coloredlogs
+
+# LOGGING SETUP
+logger = logging.getLogger(__name__)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s - %(lineno)d')
+handler = logging.StreamHandler()
+handler.setFormatter(formatter)
+logger.addHandler(handler) 
+coloredlogs.install(level='INFO', logger=logger, force=True)
 
 nus_categories = ('car', 'truck', 'trailer', 'bus', 'construction_vehicle',
                   'bicycle', 'motorcycle', 'pedestrian', 'traffic_cone',
@@ -45,14 +54,21 @@ def create_nuscenes_infos(root_path,
         max_sweeps (int): Max number of sweeps.
             Default: 10
     """
+    
+    # logger.warning(f"=================================")    
+    # logger.warning(f"[create_nuscenes_info] called!")
+    # logger.warning(f"=================================")    
+    
     from nuscenes.nuscenes import NuScenes
     from nuscenes.can_bus.can_bus_api import NuScenesCanBus
     print(version, root_path)
+
     nusc = NuScenes(version=version, dataroot=root_path, verbose=True)
     nusc_can_bus = NuScenesCanBus(dataroot=can_bus_root_path)
     from nuscenes.utils import splits
     available_vers = ['v1.0-trainval', 'v1.0-test', 'v1.0-mini']
     assert version in available_vers
+    
     if version == 'v1.0-trainval':
         train_scenes = splits.train
         val_scenes = splits.val
@@ -65,6 +81,7 @@ def create_nuscenes_infos(root_path,
     else:
         raise ValueError('unknown')
 
+    logger.warning("CKPT-1")
     # filter existing scenes.
     available_scenes = get_available_scenes(nusc)
     available_scene_names = [s['name'] for s in available_scenes]
