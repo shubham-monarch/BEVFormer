@@ -24,6 +24,17 @@ from mmseg import __version__ as mmseg_version
 
 from mmcv.utils import TORCH_VERSION, digit_version
 
+import logging, coloredlogs
+
+def parse_logger():
+    logger_fp16 = logging.getLogger(__name__)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s - %(lineno)d')
+    handler = logging.StreamHandler()
+    handler.setFormatter(formatter)
+    logger_fp16.addHandler(handler)
+    coloredlogs.install(level='INFO', logger=logger_fp16, force=True)
+    return logger_fp16
+
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a detector')
     parser.add_argument('config', help='train config file path')
@@ -96,6 +107,8 @@ def parse_args():
 def main():
     args = parse_args()
 
+    logger_fp16 = parse_logger()
+
     cfg = Config.fromfile(args.config)
     if args.cfg_options is not None:
         cfg.merge_from_dict(args.cfg_options)
@@ -127,6 +140,8 @@ def main():
                     _module_path = _module_path + '.' + m
                 print(_module_path)
                 plg_lib = importlib.import_module(_module_path)
+
+            logger_fp16.warning(f"dir(plg_lib): {dir(plg_lib)}")
             
             from projects.mmdet3d_plugin.bevformer.apis import custom_train_model
     # set cudnn_benchmark

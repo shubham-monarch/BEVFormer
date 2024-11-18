@@ -29,6 +29,12 @@ from mmseg import __version__ as mmseg_version
 
 from mmcv.utils import TORCH_VERSION, digit_version
 
+import logging, coloredlogs
+
+
+# LOGGING SETUP
+
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a detector')
@@ -102,6 +108,20 @@ def parse_args():
 def main():
     args = parse_args()
 
+
+    logger = logging.getLogger(__name__)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s - %(lineno)d')
+    handler = logging.StreamHandler()
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    coloredlogs.install(level='INFO', logger=logger, force=True)
+
+
+    logger.warning(f"=================================")    
+    logger.warning(f"train.py called with args: {args}")    
+    logger.warning(f"=================================")    
+       
+
     cfg = Config.fromfile(args.config)
     if args.cfg_options is not None:
         cfg.merge_from_dict(args.cfg_options)
@@ -115,15 +135,19 @@ def main():
         if cfg.plugin:
             import importlib
             if hasattr(cfg, 'plugin_dir'):
+                logger.warning(f"=================================")    
                 plugin_dir = cfg.plugin_dir
                 _module_dir = os.path.dirname(plugin_dir)
                 _module_dir = _module_dir.split('/')
                 _module_path = _module_dir[0]
-
+                
+                logger.warning(f"number of module dirs: {len(_module_dir[1:])}")
                 for m in _module_dir[1:]:
                     _module_path = _module_path + '.' + m
-                print(_module_path)
+                # print(_module_path)
+                logger.warning(f"importing module from {_module_path}")
                 plg_lib = importlib.import_module(_module_path)
+                logger.warning(f"=================================")    
             else:
                 # import dir is the dirpath for the config file
                 _module_dir = os.path.dirname(args.config)

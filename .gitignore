@@ -6,6 +6,7 @@
 # custom folders
 downloads/*
 data/*
+eval-results/* 
 
 # BEV-folders
 output/*
