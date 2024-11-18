@@ -12,15 +12,23 @@ from mmcv import Config, DictAction
 from mmcv.runner import get_dist_info, init_dist, wrap_fp16_model
 from os import path as osp
 
-from mmdet import __version__ as mmdet_version
-from mmdet3d import __version__ as mmdet3d_version
-#from mmdet3d.apis import train_model
+# from mmdet import __version__ as mmdet_version
+# from mmdet3d import __version__ as mmdet3d_version
+#from mmdet3d.apis import train_models
 
-from mmdet3d.datasets import build_dataset
-from mmdet3d.models import build_model
-from mmdet3d.utils import collect_env, get_root_logger
-from mmdet.apis import set_random_seed
+
+# mmdet3d imports
+# from mmdet3d.datasets import build_dataset
+# from mmdet3d.models import build_model
+# from mmdet3d.utils import collect_env, get_root_logger
+# from mmdet.apis import set_random_seed
+
+# mmseg imports
 from mmseg import __version__ as mmseg_version
+from mmseg.datasets import build_dataset
+from mmseg.models import build_model
+from mmseg.utils import collect_env, get_root_logger
+
 
 from mmcv.utils import TORCH_VERSION, digit_version
 

@@ -7,6 +7,7 @@
 downloads/*
 data/*
 eval-results/* 
+BEVFormer_segmentation_detection 
 
 # BEV-folders
 output/*
