@@ -20,7 +20,23 @@ plugin_dir = 'projects/mmdet3d_plugin/'
 point_cloud_range = [-51.2, -51.2, -5.0, 51.2, 51.2, 3.0]
 voxel_size = [0.2, 0.2, 8]
 
+# ========================
+det_grid_conf = {
+    'xbound': [-51.2, 51.2, 0.68],
+    'ybound': [-51.2, 51.2, 0.68],
+    'zbound': [-10.0, 10.0, 20.0],
+    'dbound': [1.0, 60.0, 1.0],
+}
 
+map_grid_conf = {
+    'xbound': [-30.0, 30.0, 0.15],
+    'ybound': [-15.0, 15.0, 0.15],
+    'zbound': [-10.0, 10.0, 20.0],
+    'dbound': [1.0, 60.0, 1.0],
+}
+
+grid_conf = map_grid_conf
+# ========================
 
 
 img_norm_cfg = dict(
@@ -79,6 +95,19 @@ model = dict(
         sync_cls_avg_factor=True,
         with_box_refine=True,
         as_two_stage=False,
+        task={'seg':True,
+              'det':True},
+        det_grid_conf=det_grid_conf,
+        map_grid_conf=map_grid_conf,
+        seg_encoder=dict(
+            type='SegEncode',
+            inC=256,
+            outC=4),
+        loss_seg=dict(
+            type='CrossEntropyLoss',
+            use_sigmoid=False,
+            loss_weight=3.0,
+            class_weight=[0.3, 2.0, 2.0, 2.0]),
         transformer=dict(
             type='PerceptionTransformer',
             rotate_prev_bev=True,
@@ -178,17 +207,19 @@ train_pipeline = [
     dict(type='LoadMultiViewImageFromFiles', to_float32=True),
     dict(type='PhotoMetricDistortionMultiViewImage'),
     dict(type='LoadAnnotations3D', with_bbox_3d=True, with_label_3d=True, with_attr_label=False),
+    dict(type='RasterizeMapVectors', map_grid_conf=map_grid_conf),
     dict(type='ObjectRangeFilter', point_cloud_range=point_cloud_range),
     dict(type='ObjectNameFilter', classes=class_names),
     dict(type='NormalizeMultiviewImage', **img_norm_cfg),
     dict(type='RandomScaleImageMultiViewImage', scales=[0.5]),
     dict(type='PadMultiViewImage', size_divisor=32),
     dict(type='DefaultFormatBundle3D', class_names=class_names),
-    dict(type='CustomCollect3D', keys=['gt_bboxes_3d', 'gt_labels_3d', 'img'])
+    dict(type='CustomCollect3D', keys=['gt_bboxes_3d', 'gt_labels_3d', 'img', 'semantic_indices'])
 ]
 
 test_pipeline = [
     dict(type='LoadMultiViewImageFromFiles', to_float32=True),
+    dict(type='RasterizeMapVectors', map_grid_conf=map_grid_conf),
     dict(type='NormalizeMultiviewImage', **img_norm_cfg),
    
     dict(
@@ -203,7 +234,7 @@ test_pipeline = [
                 type='DefaultFormatBundle3D',
                 class_names=class_names,
                 with_label=False),
-            dict(type='CustomCollect3D', keys=['img'])
+            dict(type='CustomCollect3D', keys=['img', 'semantic_indices'])
         ])
 ]
 
@@ -219,6 +250,7 @@ data = dict(
         modality=input_modality,
         test_mode=False,
         use_valid_flag=True,
+        grid_conf=grid_conf,
         bev_size=(bev_h_, bev_w_),
         queue_length=queue_length,
         # we use box_type_3d='LiDAR' in kitti and nuscenes dataset
@@ -226,10 +258,12 @@ data = dict(
         box_type_3d='LiDAR'),
     val=dict(type=dataset_type,
              data_root=data_root,
+             grid_conf=grid_conf,
              ann_file=data_root + 'nuscenes_infos_temporal_val.pkl',
              pipeline=test_pipeline,  bev_size=(bev_h_, bev_w_),
              classes=class_names, modality=input_modality, samples_per_gpu=1),
     test=dict(type=dataset_type,
+              grid_conf=grid_conf,
               data_root=data_root,
               ann_file=data_root + 'nuscenes_infos_temporal_val.pkl',
               pipeline=test_pipeline, bev_size=(bev_h_, bev_w_),
@@ -240,7 +274,8 @@ data = dict(
 
 optimizer = dict(
     type='AdamW',
-    lr=2.8e-4,
+    # lr=2.8e-4,
+    lr=1e-4,
     paramwise_cfg=dict(
         custom_keys={
             'img_backbone': dict(lr_mult=0.1),
