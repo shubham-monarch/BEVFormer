@@ -178,7 +178,7 @@ if __name__ == '__main__':
             out_dir=args.out_dir,
             max_sweeps=args.max_sweeps)
         
-        exit(1)
+        # exit(1)
         # test_version = f'{args.version}-test'
         # nuscenes_data_prep(
         #     root_path=args.root_path,

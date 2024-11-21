@@ -5,7 +5,9 @@ from .core.evaluation.eval_hooks import CustomDistEvalHook
 from .datasets.pipelines import (
   PhotoMetricDistortionMultiViewImage, PadMultiViewImage, 
   NormalizeMultiviewImage,  CustomCollect3D)
+from .models.backbones.vovnet import VoVNet
 from .models.utils import *
 from .models.opt.adamw import AdamW2
+from .models.hooks import *
 from .bevformer import *
-from .dd3d import *
+from .metrics import *

@@ -23,6 +23,18 @@ from projects.mmdet3d_plugin.models.utils.bricks import run_time
 from mmcv.runner import force_fp32, auto_fp16
 
 
+import logging
+import coloredlogs
+
+logger = logging.getLogger(__name__)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s - %(lineno)d')
+handler = logging.StreamHandler()
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+coloredlogs.install(level='INFO', logger=logger, force=True)
+
+
+
 @TRANSFORMER.register_module()
 class PerceptionTransformer(BaseModule):
     """Implements the Detr3D transformer.
@@ -48,10 +60,23 @@ class PerceptionTransformer(BaseModule):
                  can_bus_norm=True,
                  use_cams_embeds=True,
                  rotate_center=[100, 100],
+                 lss_transformer=None,
                  **kwargs):
+        print("================================================")
+        print("[transformer.py -> __init__()]")
+        print("================================================\n")
+        
         super(PerceptionTransformer, self).__init__(**kwargs)
         self.encoder = build_transformer_layer_sequence(encoder)
-        self.decoder = build_transformer_layer_sequence(decoder)
+        if lss_transformer is not None:
+            self.lss_encoder = build_transformer_layer_sequence(lss_transformer)
+        else:
+            self.lss_encoder = None
+
+        if decoder is not None:
+            self.decoder = build_transformer_layer_sequence(decoder)
+        else:
+            self.decoder = None
         self.embed_dims = embed_dims
         self.num_feature_levels = num_feature_levels
         self.num_cams = num_cams
@@ -100,6 +125,18 @@ class PerceptionTransformer(BaseModule):
         xavier_init(self.reference_points, distribution='uniform', bias=0.)
         xavier_init(self.can_bus_mlp, distribution='uniform', bias=0.)
 
+    def get_lss_bev_feature(
+            self,
+            mlvl_feats,
+            **kwargs):
+
+        x = mlvl_feats[-1]
+        rots, trans, intrins, post_rots, post_trans = None
+
+        lss_bev_feature = self.transformer(x, rots, trans, intrins, post_rots, post_trans)
+
+        return lss_bev_feature
+
     @auto_fp16(apply_to=('mlvl_feats', 'bev_queries', 'prev_bev', 'bev_pos'))
     def get_bev_features(
             self,
@@ -115,6 +152,32 @@ class PerceptionTransformer(BaseModule):
         obtain bev features.
         """
 
+        # print("================================================")
+        # print("[transformer.py -> get_bev_features()]")
+        # print(f"type(kwargs['img_metas']): {type(kwargs['img_metas'])}")
+        # print("================================================\n")
+        
+        # logger.warning("================================================")
+        # logger.warning("entering get_bev_features!")
+        # logger.warning("================================================\n")
+
+        # Print all keys in kwargs => img_metas
+        img_metas_ = kwargs['img_metas']
+        # logger.info("================================================")
+        
+        
+        # logger.info(f"type(img_metas_): {type(img_metas_)}")
+        # logger.info(f"len(img_metas_): {len(img_metas_)}")
+
+
+        # logger.info(f"type(img_metas_[0]): {type(img_metas_[0])}")
+        # logger.info(f"img_metas_[0].keys(): {img_metas_[0].keys()}\n")
+        
+        # logger.info(f"type(img_metas_[1]): {type(img_metas_[1])}")
+        # logger.info(f"img_metas_[1].keys(): {img_metas_[1].keys()}\n")
+        
+
+        # logger.info("================================================\n")
         bs = mlvl_feats[0].size(0)
         bev_queries = bev_queries.unsqueeze(1).repeat(1, bs, 1)
         bev_pos = bev_pos.flatten(2).permute(2, 0, 1)
@@ -197,6 +260,9 @@ class PerceptionTransformer(BaseModule):
             **kwargs
         )
 
+        # logger.warning("================================================")
+        # logger.warning("leaving get_bev_features!")
+        # logger.warning("================================================\n")
         return bev_embed
 
     @auto_fp16(apply_to=('mlvl_feats', 'bev_queries', 'object_query_embed', 'prev_bev', 'bev_pos'))
@@ -248,7 +314,11 @@ class PerceptionTransformer(BaseModule):
                     be returned when `as_two_stage` is True, \
                     otherwise None.
         """
-
+        
+        # logger.info("================================================")
+        # logger.info("[transformer.py -> forward()]")
+        # logger.info("================================================\n")
+        
         bev_embed = self.get_bev_features(
             mlvl_feats,
             bev_queries,
@@ -272,18 +342,23 @@ class PerceptionTransformer(BaseModule):
         query_pos = query_pos.permute(1, 0, 2)
         bev_embed = bev_embed.permute(1, 0, 2)
 
-        inter_states, inter_references = self.decoder(
-            query=query,
-            key=None,
-            value=bev_embed,
-            query_pos=query_pos,
-            reference_points=reference_points,
-            reg_branches=reg_branches,
-            cls_branches=cls_branches,
-            spatial_shapes=torch.tensor([[bev_h, bev_w]], device=query.device),
-            level_start_index=torch.tensor([0], device=query.device),
-            **kwargs)
+        if self.decoder is not None:
 
-        inter_references_out = inter_references
+            inter_states, inter_references = self.decoder(
+                query=query,
+                key=None,
+                value=bev_embed,
+                query_pos=query_pos,
+                reference_points=reference_points,
+                reg_branches=reg_branches,
+                cls_branches=cls_branches,
+                spatial_shapes=torch.tensor([[bev_h, bev_w]], device=query.device),
+                level_start_index=torch.tensor([0], device=query.device),
+                **kwargs)
 
-        return bev_embed, inter_states, init_reference_out, inter_references_out
+            inter_references_out = inter_references
+
+            return bev_embed, inter_states, init_reference_out, inter_references_out
+
+        else:
+            return bev_embed, None, None, None

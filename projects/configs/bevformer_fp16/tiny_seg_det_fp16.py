@@ -295,6 +295,8 @@ evaluation = dict(interval=1, pipeline=test_pipeline)
 
 runner = dict(type='EpochBasedRunner_video', max_epochs=total_epochs)
 
+log_level = 'WARNING'
+
 log_config = dict(
     interval=50,
     hooks=[

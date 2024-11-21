@@ -24,16 +24,28 @@ from mmseg import __version__ as mmseg_version
 
 from mmcv.utils import TORCH_VERSION, digit_version
 
-import logging, coloredlogs
+import logging
+import coloredlogs
+
+# logger = logging.getLogger(__name__)
+# formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s - %(lineno)d')
+# handler = logging.StreamHandler()
+# handler.setFormatter(formatter)
+# logger.addHandler(handler)
+# coloredlogs.install(level='WARNING', logger=logger, force=True)
+
+
+from torch.fx import symbolic_trace
+
 
 def parse_logger():
-    logger_fp16 = logging.getLogger(__name__)
+    logger = logging.getLogger(__name__)
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s - %(lineno)d')
     handler = logging.StreamHandler()
     handler.setFormatter(formatter)
-    logger_fp16.addHandler(handler)
-    coloredlogs.install(level='INFO', logger=logger_fp16, force=True)
-    return logger_fp16
+    logger.addHandler(handler)
+    coloredlogs.install(level='INFO', logger=logger, force=True)
+    return logger
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a detector')
@@ -107,7 +119,7 @@ def parse_args():
 def main():
     args = parse_args()
 
-    logger_fp16 = parse_logger()
+    logger = parse_logger()
 
     cfg = Config.fromfile(args.config)
     if args.cfg_options is not None:
@@ -141,7 +153,7 @@ def main():
                 print(_module_path)
                 plg_lib = importlib.import_module(_module_path)
 
-            logger_fp16.warning(f"dir(plg_lib): {dir(plg_lib)}")
+            logger.warning(f"dir(plg_lib): {dir(plg_lib)}")
             
             from projects.mmdet3d_plugin.bevformer.apis import custom_train_model
     # set cudnn_benchmark
@@ -196,8 +208,12 @@ def main():
         logger_name = 'mmseg'
     else:
         logger_name = 'mmdet'
+    # logger = get_root_logger(
+    #     log_file=log_file, log_level=cfg.log_level, name=logger_name)
+
     logger = get_root_logger(
-        log_file=log_file, log_level=cfg.log_level, name=logger_name)
+        log_file=log_file, log_level=logging.WARNING, name=logger_name)
+
 
     # init the meta dict to record some important information such as
     # environment info and seed, which will be logged
@@ -224,11 +240,36 @@ def main():
     meta['seed'] = args.seed
     meta['exp_name'] = osp.basename(args.config)
 
+    # # List all registered DETECTORS modules
+    # from mmdet.models import DETECTORS
+    # registered_detectors = list(DETECTORS.module_dict.keys())
+    # print("================================================")
+    # print("Registered DETECTORS modules:")
+    # for detector in registered_detectors:
+    #     print(f"- {detector}")
+    # print("================================================\n")
+
+    # List all registered DATASETS modules
+    # from mmdet.datasets import DATASETS
+    # registered_datasets = list(DATASETS.module_dict.keys())
+    # print("================================================")
+    # print("Registered DATASETS modules:")
+    # for dataset in registered_datasets:
+    #     print(f"- {dataset}")
+    # print("================================================\n")
+    
+    # exit(1)
     model = build_model(
         cfg.model,
         train_cfg=cfg.get('train_cfg'),
         test_cfg=cfg.get('test_cfg'))
     model.init_weights()
+
+    print("================================================")
+    print("Model type:", type(model))
+    print("================================================\n")
+
+    # exit(1)
 
     eval_model_config = copy.deepcopy(cfg.model)
     eval_model = build_model(
@@ -244,8 +285,19 @@ def main():
     eval_model.load_state_dict(model.state_dict())
 
     logger.info(f'Model:\n{model}')
+    
+    # exit(1)
+    
     from projects.mmdet3d_plugin.datasets import custom_build_dataset
     datasets = [custom_build_dataset(cfg.data.train)]
+
+    print("================================================")
+    print("Dataset types:")
+    for i, dataset in enumerate(datasets):
+        print(f"Dataset {i}: {type(dataset)}")
+    print("================================================\n")
+    
+    
     if len(cfg.workflow) == 2:
         val_dataset = copy.deepcopy(cfg.data.val)
         # in case we use a dataset wrapper
@@ -271,6 +323,14 @@ def main():
             if hasattr(datasets[0], 'PALETTE') else None)
     # add an attribute for visualization convenience
     model.CLASSES = datasets[0].CLASSES
+    
+    # exit(1)
+    # print("================================================")
+    # print("[before train_fp16.py -> custom_train_model()]")
+    # print("================================================\n")
+    
+    # exit(1)
+    
     custom_train_model(
         model,
         datasets,
@@ -281,6 +341,10 @@ def main():
         timestamp=timestamp,
         meta=meta)
 
+    # logger.warning("================================================")
+    # logger.warning("[after train_fp16.py -> custom_train_model()]")
+    # logger.warning("================================================\n")
+    
 
 if __name__ == '__main__':
     main()

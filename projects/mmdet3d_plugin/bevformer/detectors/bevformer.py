@@ -15,6 +15,15 @@ import copy
 import numpy as np
 import mmdet3d
 from projects.mmdet3d_plugin.models.utils.bricks import run_time
+import logging
+import coloredlogs
+
+logger = logging.getLogger(__name__)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s - %(lineno)d')
+handler = logging.StreamHandler()
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+coloredlogs.install(level='INFO', logger=logger, force=True)
 
 
 @DETECTORS.register_module()
@@ -49,6 +58,11 @@ class BEVFormer(MVXTwoStageDetector):
                              img_backbone, pts_backbone, img_neck, pts_neck,
                              pts_bbox_head, img_roi_head, img_rpn_head,
                              train_cfg, test_cfg, pretrained)
+
+        print("================================================")
+        print("[bevformer.py -> __init__()]")
+        print("================================================\n")
+
         self.grid_mask = GridMask(
             True, True, rotate=1, offset=False, ratio=0.5, mode=1, prob=0.7)
         self.use_grid_mask = use_grid_mask
@@ -112,6 +126,7 @@ class BEVFormer(MVXTwoStageDetector):
                           pts_feats,
                           gt_bboxes_3d,
                           gt_labels_3d,
+                          semantic_indices,
                           img_metas,
                           gt_bboxes_ignore=None,
                           prev_bev=None):
@@ -131,10 +146,35 @@ class BEVFormer(MVXTwoStageDetector):
         """
 
         outs = self.pts_bbox_head(
-            pts_feats, img_metas, prev_bev)
-        loss_inputs = [gt_bboxes_3d, gt_labels_3d, outs]
-        losses = self.pts_bbox_head.loss(*loss_inputs, img_metas=img_metas)
-        return losses
+            pts_feats, img_metas, prev_bev)  #这里是一个整体，直接获得计算loss所需要的logits
+        
+        # logger.warning("================================================")
+        # logger.warning(f"[bevformer.py]")
+        # logger.warning(f"type(outs): {type(outs)}")
+        # logger.warning(f"len(outs): {len(outs)}")
+        # logger.warning(f"outs.keys(): {outs.keys()}")
+        # logger.warning("================================================")
+        
+        # 1. single det task
+        if 'seg_preds' not in outs.keys():
+            det_loss_inputs = [gt_bboxes_3d, gt_labels_3d, outs]
+            det_losses = self.pts_bbox_head.loss(*det_loss_inputs, img_metas=img_metas)
+            return det_losses
+        # 2. single seg task
+        elif 'all_bbox_preds' not in outs.keys():
+            seg_loss_inputs = [semantic_indices, outs]
+            seg_losses = self.pts_bbox_head.seg_loss(*seg_loss_inputs)
+
+            return seg_losses
+        # 3. muti task
+        else:
+            det_loss_inputs = [gt_bboxes_3d, gt_labels_3d, outs]
+            det_losses = self.pts_bbox_head.loss(*det_loss_inputs, img_metas=img_metas)
+            seg_loss_inputs = [semantic_indices, outs]
+            seg_losses = self.pts_bbox_head.seg_loss(*seg_loss_inputs)
+            det_losses.update(seg_losses)
+
+            return det_losses
 
     def forward_dummy(self, img):
         dummy_metas = None
@@ -150,6 +190,13 @@ class BEVFormer(MVXTwoStageDetector):
         list[list[dict]]), with the outer list indicating test time
         augmentations.
         """
+
+        # logger.warning("================================================")
+        # logger.warning(f"[bevformer.py  -> forward()]")
+        # logger.warning("================================================")
+        
+        # exit(1)
+        
         if return_loss:
             return self.forward_train(**kwargs)
         else:
@@ -165,14 +212,15 @@ class BEVFormer(MVXTwoStageDetector):
             bs, len_queue, num_cams, C, H, W = imgs_queue.shape
             imgs_queue = imgs_queue.reshape(bs*len_queue, num_cams, C, H, W)
             img_feats_list = self.extract_feat(img=imgs_queue, len_queue=len_queue)
-            for i in range(len_queue):
+            for i in range(len_queue): # 循环融合
                 img_metas = [each[i] for each in img_metas_list]
                 if not img_metas[0]['prev_bev_exists']:
                     prev_bev = None
                 # img_feats = self.extract_feat(img=img, img_metas=img_metas)
                 img_feats = [each_scale[:, i] for each_scale in img_feats_list]
                 prev_bev = self.pts_bbox_head(
-                    img_feats, img_metas, prev_bev, only_bev=True)
+                    img_feats, img_metas, prev_bev, only_bev=True) #only_bev=True 只运行encoder部分，去计算BEV特征，但是ecoder部分是本文最重要的部分。
+                # 注意当prev_bev=None时的情况，TSA退化为SA，通过这个for循环，建立了时序上的联系，后续将不断的迭代。
             self.train()
             return prev_bev
 
@@ -182,6 +230,7 @@ class BEVFormer(MVXTwoStageDetector):
                       img_metas=None,
                       gt_bboxes_3d=None,
                       gt_labels_3d=None,
+                      semantic_indices=None,
                       gt_labels=None,
                       gt_bboxes=None,
                       img=None,
@@ -212,23 +261,28 @@ class BEVFormer(MVXTwoStageDetector):
                 2D boxes in images to be ignored. Defaults to None.
         Returns:
             dict: Losses of different branches.
+        思路：
+        1 从图像队列中得到两部分：当前帧以及过去时刻图像
+        2 用自回归的方法获取前一帧的bev特征 prev_bev
+        3 cnn提取图像的特征
+        4 直接送入BEVFormerHead，里面是一个transformer结构，encoder部分是为了得到bev表征，decoder部分是下游任务解码器
         """
         
-        len_queue = img.size(1)
-        prev_img = img[:, :-1, ...]
-        img = img[:, -1, ...]
+        len_queue = img.size(1) # 构建的时间队列长度
+        prev_img = img[:, :-1, ...] # 获取前两针的图像
+        img = img[:, -1, ...] #当前时刻图像
 
-        prev_img_metas = copy.deepcopy(img_metas)
-        prev_bev = self.obtain_history_bev(prev_img, prev_img_metas)
+        prev_img_metas = copy.deepcopy(img_metas) # 这里没写好吧，但是影响不大
+        prev_bev = self.obtain_history_bev(prev_img, prev_img_metas) # 获取前一帧的bev特征
 
         img_metas = [each[len_queue-1] for each in img_metas]
         if not img_metas[0]['prev_bev_exists']:
             prev_bev = None
-        img_feats = self.extract_feat(img=img, img_metas=img_metas)
+        img_feats = self.extract_feat(img=img, img_metas=img_metas)   # 提取当前图像特征
         losses = dict()
         losses_pts = self.forward_pts_train(img_feats, gt_bboxes_3d,
-                                            gt_labels_3d, img_metas,
-                                            gt_bboxes_ignore, prev_bev)
+                                            gt_labels_3d, semantic_indices,
+                                            img_metas, gt_bboxes_ignore, prev_bev)
 
         losses.update(losses_pts)
         return losses
@@ -266,27 +320,63 @@ class BEVFormer(MVXTwoStageDetector):
         self.prev_frame_info['prev_pos'] = tmp_pos
         self.prev_frame_info['prev_angle'] = tmp_angle
         self.prev_frame_info['prev_bev'] = new_prev_bev
+
         return bbox_results
 
     def simple_test_pts(self, x, img_metas, prev_bev=None, rescale=False):
         """Test function"""
         outs = self.pts_bbox_head(x, img_metas, prev_bev=prev_bev)
+        # 1. single det task
+        if 'seg_preds' not in outs.keys():
 
-        bbox_list = self.pts_bbox_head.get_bboxes(
-            outs, img_metas, rescale=rescale)
-        bbox_results = [
-            bbox3d2result(bboxes, scores, labels)
-            for bboxes, scores, labels in bbox_list
-        ]
-        return outs['bev_embed'], bbox_results
+            bbox_list = self.pts_bbox_head.get_bboxes(
+                outs, img_metas, rescale=rescale)
+            bbox_results = [
+                bbox3d2result(bboxes, scores, labels)
+                for bboxes, scores, labels in bbox_list
+            ]
+
+            return outs['bev_embed'], None, bbox_results
+
+        # 2. single seg task
+        elif 'all_bbox_preds' not in outs.keys():
+
+            return outs['bev_embed'], outs['seg_preds'], None
+
+        # 3. muti task
+        else:
+            bbox_list = self.pts_bbox_head.get_bboxes(
+                outs, img_metas, rescale=rescale)
+            bbox_results = [
+                bbox3d2result(bboxes, scores, labels)
+                for bboxes, scores, labels in bbox_list
+            ]
+
+            return outs['bev_embed'], outs['seg_preds'], bbox_results
 
     def simple_test(self, img_metas, img=None, prev_bev=None, rescale=False):
         """Test function without augmentaiton."""
         img_feats = self.extract_feat(img=img, img_metas=img_metas)
 
-        bbox_list = [dict() for i in range(len(img_metas))]
-        new_prev_bev, bbox_pts = self.simple_test_pts(
+        result_list = [dict() for i in range(len(img_metas))]
+        new_prev_bev, seg_preds, bbox_pts = self.simple_test_pts(
             img_feats, img_metas, prev_bev, rescale=rescale)
-        for result_dict, pts_bbox in zip(bbox_list, bbox_pts):
-            result_dict['pts_bbox'] = pts_bbox
-        return new_prev_bev, bbox_list
+
+        # 三种模式
+        #1. single det
+        if seg_preds is None:
+            for result_dict, pts_bbox in zip(result_list, bbox_pts):
+                result_dict['pts_bbox'] = pts_bbox
+                result_dict['seg_preds'] = None
+        # 2. single seg
+        elif bbox_pts is None:
+            for result_dict in result_list:
+                result_dict['pts_bbox'] = None
+                result_dict['seg_preds'] = seg_preds
+        # 3. muti task
+        else:
+            for result_dict, pts_bbox in zip(result_list, bbox_pts):
+                result_dict['pts_bbox'] = pts_bbox
+                result_dict['seg_preds'] = seg_preds
+
+        return new_prev_bev, result_list

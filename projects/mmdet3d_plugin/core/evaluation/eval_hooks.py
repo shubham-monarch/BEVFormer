@@ -30,6 +30,11 @@ class CustomDistEvalHook(BaseDistEvalHook):
 
     def __init__(self, *args, dynamic_intervals=None,  **kwargs):
         super(CustomDistEvalHook, self).__init__(*args, **kwargs)
+        
+        # print("================================================")
+        # print("[eval_hooks.py -> CustomDistEvalHook.__init__()]")
+        # print("================================================\n")
+        
         self.use_dynamic_intervals = dynamic_intervals is not None
         if self.use_dynamic_intervals:
             self.dynamic_milestones, self.dynamic_intervals = \

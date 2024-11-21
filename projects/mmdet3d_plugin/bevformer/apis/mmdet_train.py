@@ -20,6 +20,7 @@ from mmdet.core import EvalHook
 from mmdet.datasets import (build_dataset,
                             replace_ImageToTensor)
 from mmdet.utils import get_root_logger
+from mmdet.utils.logger import get_logger_
 import time
 import os.path as osp
 from projects.mmdet3d_plugin.datasets.builder import build_dataloader
@@ -34,6 +35,7 @@ def custom_train_detector(model,
                    eval_model=None,
                    meta=None):
     logger = get_root_logger(cfg.log_level)
+    logger_ = get_logger_(cfg.log_level)
 
     # prepare data loaders
    
@@ -66,6 +68,85 @@ def custom_train_detector(model,
             nonshuffler_sampler=cfg.data.nonshuffler_sampler,  # dict(type='DistributedSampler'),
         ) for ds in dataset
     ]
+
+    # keys = {img_metas,gt_boxes_3d,img,semantic_indices}
+    logger_.info("================================================")
+    
+    first_dataloader = data_loaders[0]
+    logger_.info("Iterating over first_dataloader.dataset:")
+    logger_.info(f"type(first_dataloader.dataset): {type(first_dataloader.dataset)}")
+    
+    for i, data in enumerate(first_dataloader.dataset):
+        logger_.warning(f"# Sample {i}:")
+        for k, v in data.items():
+            if k == 'img_metas':
+                logger_.info(f"type(img_metas): {type(v)}")
+                logger_.info(f"len(img_metas): {len(v)}")
+                # if i == 0:
+                    # logger_.info(f"img_metas[0]: {v[0]}")
+        # for key, value in data.items():
+        #     logger_.info(f"key: {key} type: {type(key)}")
+        #     logger_.info(f"type(value): {type(value)}")
+            
+            
+        #     if issinstance(value, (list, tuple, dict)):
+        #         logger_.info(f"  {key}: {type(value)}")
+        #     else:
+        #         logger_.info(f"  {key}: {type(value)}, shape: {value.shape if hasattr(value, 'shape') else None}")
+        if i >= 10:  # Only show first 3 samples
+            break
+
+    
+
+
+    # first_batch = next(iter(first_dataloader))
+    
+    # logger_.info(f"dir(first_batch): {dir(first_batch)}")
+    # logger_.info("First batch keys: %s", first_batch.keys())
+
+    # img_metas = first_batch['img_metas']
+    # logger_.info(f"type(img_metas): {type(img_metas)}")
+    # logger_.info(f"len(img_metas): {len(img_metas)}")
+    # # logger_.info(f"img_metas[0]: {img_metas[0]}")
+
+    # for k, v in first_batch.items():
+    #     if isinstance(v, torch.Tensor):
+    #         logger_.warning("Key: %s", k)
+    #         logger_.warning("Shape: %s", v.shape)
+    #         logger_.warning("Dtype: %s", v.dtype) 
+    #         logger_.warning("Value: %s", v)
+    #         logger_.warning("------------------------")
+    #     else:
+    #         logger_.warning("Key: %s", k)
+    #         logger_.warning("Type: %s", type(v))
+    #         logger_.warning("Value: %s", v)
+    #         logger_.warning("------------------------")
+
+    # Method 2: Dataset info
+    # logger_.warning("\nDataset info:")
+    # logger_.warning("Number of batches: %d", len(first_dataloader))
+    # logger_.warning("Batch size: %d", cfg.data.samples_per_gpu)
+    # logger_.warning("Dataset size: %d", len(ds))
+    # logger_.warning(f"Number of data loaders: {len(data_loaders)}")
+    # logger_.warning(f"Type of data_loaders: {type(data_loaders)}")
+    
+    # if len(data_loaders) > 0:
+    #     first_loader = data_loaders[0]
+    #     logger_.warning(f"dir")
+    #     logger_.warning("\nFirst data loader details:")
+    #     logger_.warning(f"Type: {type(first_loader)}")
+    #     logger_.warning(f"Batch size: {first_loader.batch_size}")
+    #     logger_.warning(f"Number of workers: {first_loader.num_workers}")
+    #     logger_.warning(f"Sampler type: {type(first_loader.sampler)}")
+    #     logger_.warning(f"Dataset type: {type(first_loader.dataset)}")
+    #     logger_.warning(f"Length of dataset: {len(first_loader.dataset)}")
+    logger_.info("================================================\n")
+
+    logger_.info("================================================")
+    logger_.info(f"distributed: {distributed}")
+    logger_.info("================================================\n")
+
+    # exit(1)
 
     # put model on gpus
     if distributed:
@@ -153,6 +234,10 @@ def custom_train_detector(model,
             runner.register_hook(DistSamplerSeedHook())
 
     # register eval hooks
+    # print("================================================")
+    # print("[mmdet_train.py -> validation started]")
+    # print("================================================\n")
+
     if validate:
         # Support batch_size > 1 in validation
         val_samples_per_gpu = cfg.data.val.pop('samples_per_gpu', 1)
@@ -178,6 +263,12 @@ def custom_train_detector(model,
         eval_hook = CustomDistEvalHook if distributed else EvalHook
         runner.register_hook(eval_hook(val_dataloader, **eval_cfg))
 
+    # print("================================================")
+    # print("[mmdet_train.py -> validation finished]")
+    # print("================================================\n")
+
+    # exit(1)
+
     # user-defined hooks
     if cfg.get('custom_hooks', None):
         custom_hooks = cfg.custom_hooks
@@ -196,5 +287,14 @@ def custom_train_detector(model,
         runner.resume(cfg.resume_from)
     elif cfg.load_from:
         runner.load_checkpoint(cfg.load_from)
+
+    print("================================================")
+    print(f"cfg.workflow: {cfg.workflow}")
+    print(f"type(data_loaders): {type(data_loaders)}")
+    print(f"data_loaders: {data_loaders}")
+    print("================================================\n")
+
+    # exit(1)
     runner.run(data_loaders, cfg.workflow)
 
+    # exit(1)    
